@@ -1129,7 +1129,7 @@ class Bot:
                 SELECT 
                     cl.animal_code,
                     cl.telegram_tag,
-                    (cl.condition1 + cl.condition2 + cl.condition3 + cl.condition4 + cl.condition5) as completed_conditions
+                    (cl.condition1 + cl.condition2 + cl.condition3) as completed_conditions
                 FROM ContestLogs cl
                 ORDER BY completed_conditions DESC
                 LIMIT 10
@@ -1149,7 +1149,7 @@ class Bot:
 
         response = "📊 Статистика конкурса:\n\n"
         for animal_code, telegram_tag, completed in stats:
-            response += f"🏷 {animal_code} | {telegram_tag or 'Нет тега'} | {completed}/5 ✅ \n\n"
+            response += f"🏷 {animal_code} | {telegram_tag or 'Нет тега'} | {completed}/3 ✅ \n\n"
         
         buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
         reply_markup = InlineKeyboardMarkup(buttons)
