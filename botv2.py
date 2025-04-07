@@ -6,19 +6,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 import time
 import logging
-from datetime import datetime
 import traceback
 import sys
 
 
 class Bot:
-    VOLUNTEER_GROUPS = {'А', 'Б', 'В', 'Г', 'Д'}
+    VOLUNTEER_GROUPS = {'А', 'Б', 'В'}
     GROUP_TO_CONDITION = {
         'А': 'condition1',
         'Б': 'condition2',
-        'В': 'condition3',
-        'Г': 'condition4',
-        'Д': 'condition5'
+        'В': 'condition3'
     }
     ANIMALS = [
         "Лиса", "Волк", "Медведь", "Заяц", "Олень", "Лось", "Енот", "Барсук", 
@@ -26,18 +23,14 @@ class Bot:
         "Ласка", "Росомаха", "Песец", "Бурундук"
     ]
     MAP_DOT ={
-        'Акт1': 'https://yandex.com/maps/-/CHFt4JpS',
-        'Акт2': 'https://yandex.com/maps/-/CHFt4M5O',
-        'Акт3': 'https://yandex.com/maps/-/CHFt4RiN',
-        'Акт4': 'https://yandex.com/maps/-/CHFt4V96',
-        'Акт5': 'https://yandex.com/maps/-/CHFt46In',
+        'Акт1': 'https://yandex.ru/maps/-/CHVGFPpk',
+        'Акт2': 'https://yandex.ru/maps/-/CHVGFTn4',
+        'Акт3': 'https://yandex.ru/maps/-/CHVGFT~V'
     }
     MAP_DOT_NAME ={
-        'Акт1': 'Название1',
-        'Акт2': 'Название2',
-        'Акт3': 'Название3',
-        'Акт4': 'Название4',
-        'Акт5': 'Название5',
+        'Акт1': 'Главная Сцена',
+        'Акт2': 'Скейт Парк',
+        'Акт3': 'Малая Сцена'
     }
 
     def __init__(self):
@@ -63,8 +56,9 @@ class Bot:
                     username TEXT NOT NULL,
                     telegram_tag TEXT,
                     unique_code TEXT UNIQUE,
-                    animal_code TEXT,  -- Убираем NOT NULL
-                    role TEXT CHECK(role IN ('Волонтёр', 'Организатор', 'Пользователь')) DEFAULT 'Пользователь'
+                    animal_code TEXT,
+                    role TEXT CHECK(role IN ('Волонтёр', 'Организатор', 'Пользователь')) DEFAULT 'Пользователь',
+                    full_name TEXT -- добавили запись ФИО
                 );
                 CREATE TABLE IF NOT EXISTS VolunteerGroups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,9 +79,7 @@ class Bot:
                     animal_code TEXT,
                     condition1 BOOLEAN DEFAULT FALSE,
                     condition2 BOOLEAN DEFAULT FALSE,
-                    condition3 BOOLEAN DEFAULT FALSE,
-                    condition4 BOOLEAN DEFAULT FALSE,
-                    condition5 BOOLEAN DEFAULT FALSE
+                    condition3 BOOLEAN DEFAULT FALSE
                 );
                 CREATE TABLE IF NOT EXISTS UserMainMessages (
                     telegram_id INTEGER PRIMARY KEY,
@@ -110,12 +102,11 @@ class Bot:
         return msg
 
     def welc_msg(self, animal_code, unique_code):
-
-        msg = f"""
-        👋 Добро пожаловать в нашего бота!
-        
-        \n🏷 Ваш позывной: {animal_code if animal_code else 'Не назначен'}\n🔢 Ваш код: {unique_code if unique_code else 'Не назначен'}
-        """
+        msg = (
+            f"👋 Добро пожаловать в нашего бота!\n\n"
+            f"🏷 Ваш позывной: {animal_code if animal_code else 'Не назначен'}\n"
+            f"🔢 Ваш код: {unique_code if unique_code else 'Не назначен'}"
+        )
         return msg
 
     def standardize_call_sign(self, call_sign):
@@ -137,7 +128,7 @@ class Bot:
 
     def get_activity_name(self, condition_field: str) -> str:
         try:
-            condition_number = int(condition_field[-1])  # Получаем номер из condition1, condition2, etc.
+            condition_number = int(condition_field[-1])
             return self.MAP_DOT_NAME.get(f'Акт{condition_number}', f'Активность {condition_number}')
         except (ValueError, IndexError):
             return condition_field
@@ -145,7 +136,7 @@ class Bot:
     def generate_unique_code(self):
         return ''.join(random.choices('0123456789', k=5))
 
-    def add_user(self, telegram_id, username, telegram_tag=None, role='Пользователь'):
+    def add_user(self, telegram_id, username, telegram_tag=None, role='Пользователь', full_name=None):
         with sqlite3.connect('bot_database.db') as conn:
             cursor = conn.cursor()
             if telegram_tag is None:
@@ -153,21 +144,20 @@ class Bot:
             unique_code = self.generate_unique_code()
             animal_code = self.generate_animal_code()
             cursor.execute('''
-                INSERT OR IGNORE INTO Users (telegram_id, username, telegram_tag, unique_code, animal_code, role)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (telegram_id, username, telegram_tag, unique_code, animal_code, role))
+                INSERT OR IGNORE INTO Users (telegram_id, username, telegram_tag, unique_code, animal_code, role, full_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (telegram_id, username, telegram_tag, unique_code, animal_code, role, full_name))
             user_id = cursor.lastrowid or cursor.execute(
                 'SELECT id FROM Users WHERE telegram_id = ?',
                 (telegram_id,)
             ).fetchone()[0]
             
-            # Check if ContestLogs entry exists for this user
             cursor.execute('SELECT 1 FROM ContestLogs WHERE telegram_tag = ?', (telegram_tag,))
             if cursor.fetchone() is None:
                 cursor.execute('''
                     INSERT INTO ContestLogs 
-                    (telegram_tag, animal_code, condition1, condition2, condition3, condition4, condition5)
-                    VALUES (?, ?, 0, 0, 0, 0, 0)
+                    (telegram_tag, animal_code, condition1, condition2, condition3)
+                    VALUES (?, ?, 0, 0, 0)
                 ''', (telegram_tag, animal_code))
             
             conn.commit()
@@ -194,7 +184,7 @@ class Bot:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT id,
-                       (condition1 + condition2 + condition3 + condition4 + condition5) as completed_conditions
+                       (condition1 + condition2 + condition3) as completed_conditions
                 FROM ContestLogs
                 ORDER BY completed_conditions DESC
                 LIMIT 10
@@ -202,9 +192,6 @@ class Bot:
             return cursor.fetchall()
 
     async def safe_edit_message(self, context, chat_id, message_id, text, reply_markup=None, parse_mode=None):
-        """
-        Безопасно обновляет сообщение, игнорируя ошибку о неизмененном сообщении
-        """
         try:
             await context.bot.edit_message_text(
                 chat_id=chat_id,
@@ -217,69 +204,71 @@ class Bot:
             if "Message is not modified" not in str(e):
                 print(f"Ошибка при обновлении сообщения: {e}")
 
-    async def stat_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
-        main_message_id = self.get_main_message_id(user_id)
-        
-        if not main_message_id:
-            await update.message.reply_text("Ошибка: не найдено главное сообщение. Используйте /start для начала работы.")
-            return
-            
-        role = self.get_user_role(user_id)
-        
-        if role != 'Организатор':
-            buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
-            reply_markup = InlineKeyboardMarkup(buttons)
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=main_message_id,
-                text="⛔ У вас нет доступа к этой команде.",
-                reply_markup=reply_markup
-            )
-            return
+        username = update.effective_user.username or "Unknown"
+        telegram_tag = f"@{username}" if username else None
 
-        self.log_action(user_id, "Использована команда /stat")
+        self.add_user(user_id, username, telegram_tag)
+        self.log_action(user_id, "Использована команда /start")
         
         with sqlite3.connect('bot_database.db') as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT 
-                    cl.animal_code,
-                    cl.telegram_tag,
-                    (cl.condition1 + cl.condition2 + cl.condition3 + cl.condition4 + cl.condition5) as completed_conditions
+                SELECT cl.animal_code, u.unique_code, cl.condition1, cl.condition2, cl.condition3 
                 FROM ContestLogs cl
-                ORDER BY completed_conditions DESC
-                LIMIT 10
-            ''')
-            stats = cursor.fetchall()
+                JOIN Users u ON u.telegram_tag = cl.telegram_tag
+                WHERE u.telegram_id = ?
+            ''', (user_id,))
+            animal_code, unique_code, *conditions = cursor.fetchone()
 
-        if not stats:
-            buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
-            reply_markup = InlineKeyboardMarkup(buttons)
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=main_message_id,
-                text="Статистика пока отсутствует.",
-                reply_markup=reply_markup
-            )
-            return
-
-        response = "📊 Статистика конкурса:\n\n"
-        for animal_code, telegram_tag, completed in stats:
-            response += f"🏷 {animal_code} | {telegram_tag or 'Нет тега'} | {completed}/5 ✅ \n\n"
+        welcome_message = self.welc_msg(animal_code, unique_code)
         
-        buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
+        role = self.get_user_role(user_id)
+        buttons = [
+            [InlineKeyboardButton("О мероприятии", callback_data='get_event1')],
+        ]
+
+        if role == 'Пользователь':
+            buttons.append([InlineKeyboardButton("📊 Мой статус", callback_data='show_status')])
+
+        if sum(conditions) < 3 and role != 'Организатор' and role != 'Волонтёр':
+            buttons.append([InlineKeyboardButton("Получить карту", callback_data='get_map')])
+            completed_conditions = sum(conditions)
+            if completed_conditions == 3:
+                progress_msg = "\n🎉 Вы прошли все активности"
+            else:
+                progress_msg = f"\n🎈 Вы прошли {completed_conditions} из 3 активностей."
+            welcome_message += progress_msg
+        
+        
+        if role == 'Организатор':
+            buttons.append([InlineKeyboardButton("Получить статистику", callback_data='get_stat')])
+            buttons.append([InlineKeyboardButton("👥 Список волонтёров", callback_data='show_volunteers')])
+            buttons.append([InlineKeyboardButton("Добавить волонтера", callback_data='add_volunteer')])
+            buttons.append([InlineKeyboardButton("Отметить условие", callback_data='mark_condition')])
+            buttons.append([InlineKeyboardButton("Отменить отметку", callback_data='unmark_condition')])
+        elif role == 'Волонтёр':
+            buttons.append([InlineKeyboardButton("Отметить условие", callback_data='mark_condition')])
+            buttons.append([InlineKeyboardButton("Отменить отметку", callback_data='unmark_condition')])
+
         reply_markup = InlineKeyboardMarkup(buttons)
+        message = await update.message.reply_text(welcome_message, reply_markup=reply_markup)
         
-        await context.bot.edit_message_text(
-            chat_id=update.effective_chat.id,
-            message_id=main_message_id,
-            text=response,
-            reply_markup=reply_markup
-        )
+        with sqlite3.connect('bot_database.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO UserMainMessages (telegram_id, main_message_id)
+                VALUES (?, ?)
+            ''', (user_id, message.message_id))
+            conn.commit()
+
+        try:
+            await update.message.delete()
+        except Exception as e:
+            print(f"Ошибка при удалении сообщения с командой: {e}")
 
     async def handle_volunteer_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обрабатывает текстовый поиск от волонтёров"""
         user_id = update.message.from_user.id
         chat_id = update.message.chat.id
         search_query = self.standardize_call_sign(update.message.text.strip())
@@ -293,7 +282,6 @@ class Bot:
             return
 
         try:
-            # Получаем группу волонтёра
             with sqlite3.connect('bot_database.db') as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
@@ -310,7 +298,6 @@ class Bot:
                 volunteer_group = volunteer_group[0]
                 condition_field = self.GROUP_TO_CONDITION[volunteer_group]
 
-                # Поиск пользователей по частичному совпадению (включая тех, у кого уже отмечена активность)
                 cursor.execute(f'''
                     SELECT u.unique_code, u.animal_code, cl.{condition_field}, u.telegram_tag
                     FROM Users u
@@ -333,17 +320,14 @@ class Bot:
                 )
                 return
 
-            # Формируем кнопки с найденными пользователями
             buttons = []
             for unique_code, animal_code, is_marked, telegram_tag in matches:
                 status = "✅" if is_marked else "❌"
                 display_text = f"{status} {animal_code} ({unique_code})"
                 
                 if is_marked:
-                    # Для отмеченных пользователей создаем callback на отмену
                     callback_data = f"unmark_user_{condition_field}_{unique_code}_{telegram_tag}"
                 else:
-                    # Для неотмеченных - на отметку
                     callback_data = f"mark_user_{unique_code}"
                     
                 buttons.append([InlineKeyboardButton(display_text, callback_data=callback_data)])
@@ -359,7 +343,6 @@ class Bot:
                 reply_markup
             )
 
-            # Удаляем сообщение с поисковым запросом
             try:
                 await update.message.delete()
             except Exception as e:
@@ -377,7 +360,6 @@ class Bot:
             )
 
     async def handle_mark_user_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE, unique_code: str):
-        """Обрабатывает нажатие на кнопку с выбранным пользователем"""
         query = update.callback_query
         user_id = query.from_user.id
         chat_id = query.message.chat.id
@@ -387,7 +369,6 @@ class Bot:
             with sqlite3.connect('bot_database.db') as conn:
                 cursor = conn.cursor()
                 
-                # Получаем группу волонтёра
                 cursor.execute('''
                     SELECT vg.volunteer_group 
                     FROM VolunteerGroups vg
@@ -403,7 +384,6 @@ class Bot:
                 volunteer_group = volunteer_group[0]
                 condition_field = self.GROUP_TO_CONDITION[volunteer_group]
 
-                # Отмечаем условие для выбранного пользователя
                 cursor.execute(f'''
                     UPDATE ContestLogs 
                     SET {condition_field} = 1
@@ -436,7 +416,6 @@ class Bot:
             ]
             reply_markup = InlineKeyboardMarkup(buttons)
 
-            # Заменим вывод сообщения об успешной отметке
             activity_name = self.get_activity_name(condition_field)
             await self.safe_edit_message(
                 context,
@@ -458,7 +437,6 @@ class Bot:
             )
 
     async def unmark_condition_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обрабатывает команду отмены отметки условия"""
         user_id = update.effective_user.id
         buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
         reply_markup = InlineKeyboardMarkup(buttons)
@@ -496,7 +474,7 @@ class Bot:
                 ),
                 reply_markup,
                 parse_mode="HTML"
-            )
+                            )
             try:
                 await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
             except Exception as e:
@@ -528,7 +506,6 @@ class Bot:
                 cursor = conn.cursor()
                 
                 if role == 'Волонтёр':
-                    # Получаем группу волонтёра
                     cursor.execute('''
                         SELECT vg.volunteer_group 
                         FROM VolunteerGroups vg
@@ -542,14 +519,15 @@ class Bot:
                             context,
                             update.effective_chat.id,
                             main_message_id,
-                            "❌ Ошибка: вы не привязаны к группе.",
-                            reply_markup
+                            "❌ Ошибка: группа волонтёра не найдена.",
+                            reply_markup,
+                            parse_mode="HTML"
                         )
                         return
                     
                     volunteer_group = volunteer_group[0]
                     condition_field = self.GROUP_TO_CONDITION[volunteer_group]
-                else:  # Организатор
+                else:
                     volunteer_group = context.args[1].upper()
                     if volunteer_group not in self.VOLUNTEER_GROUPS:
                         await self.safe_edit_message(
@@ -557,7 +535,8 @@ class Bot:
                             update.effective_chat.id,
                             main_message_id,
                             f"❌ Неверная группа. Доступные группы: {', '.join(sorted(self.VOLUNTEER_GROUPS))}",
-                            reply_markup
+                            reply_markup,
+                            parse_mode="HTML"
                         )
                         return
                     condition_field = self.GROUP_TO_CONDITION[volunteer_group]
@@ -575,13 +554,13 @@ class Bot:
                         update.effective_chat.id,
                         main_message_id,
                         "❌ Указанный пользователь не найден.",
-                        reply_markup
+                        reply_markup,
+                        parse_mode="HTML"
                     )
                     return
 
                 telegram_tag, animal_code = user_data
 
-                # Отменяем отметку
                 cursor.execute(f'''
                     UPDATE ContestLogs 
                     SET {condition_field} = 0
@@ -598,14 +577,14 @@ class Bot:
             buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
             reply_markup = InlineKeyboardMarkup(buttons)
             
-            # Заменим вывод сообщения об успешной отмене
             activity_name = self.get_activity_name(condition_field)
             await self.safe_edit_message(
                 context,
                 update.effective_chat.id,
                 main_message_id,
                 f"✅ Успешно отменена отметка активности «{activity_name}» для пользователя {animal_code}",
-                reply_markup
+                reply_markup,
+                parse_mode="HTML"
             )
 
         except Exception as e:
@@ -614,7 +593,8 @@ class Bot:
                 update.effective_chat.id,
                 main_message_id,
                 f"❌ Ошибка при отмене отметки: {str(e)}",
-                reply_markup
+                reply_markup,
+                parse_mode="HTML"
             )
 
         try:
@@ -623,23 +603,20 @@ class Bot:
             print(f"Ошибка при удалении сообщения с командой: {e}")
 
     async def handle_unmark_user_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
-        """Обрабатывает отмену отметки через поиск"""
         query = update.callback_query
         user_id = query.from_user.id
         chat_id = query.message.chat.id
         main_message_id = self.get_main_message_id(user_id)
 
         try:
-            # Парсим данные из callback
             parts = data.split('_')
             condition_field = parts[0]
             unique_code = parts[1]
-            telegram_tag = '_'.join(parts[2:])  # На случай, если в telegram_tag есть подчеркивания
+            telegram_tag = '_'.join(parts[2:])
 
             with sqlite3.connect('bot_database.db') as conn:
                 cursor = conn.cursor()
                 
-                # Получаем информацию о пользователе
                 cursor.execute('''
                     SELECT animal_code
                     FROM Users 
@@ -653,7 +630,6 @@ class Bot:
                     
                 animal_code = result[0]
                 
-                # Отменяем отметку
                 cursor.execute(f'''
                     UPDATE ContestLogs 
                     SET {condition_field} = 0
@@ -670,14 +646,14 @@ class Bot:
             buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
             reply_markup = InlineKeyboardMarkup(buttons)
 
-            # Заменим вывод сообщения об успешной отмене
             activity_name = self.get_activity_name(condition_field)
             await self.safe_edit_message(
                 context,
                 chat_id,
                 main_message_id,
                 f"✅ Успешно отменена отметка активности «{activity_name}» для пользователя {animal_code}",
-                reply_markup
+                reply_markup,
+                parse_mode="HTML"
             )
 
         except Exception as e:
@@ -699,12 +675,6 @@ class Bot:
             return result[0] if result else None
 
     async def cancel_action(self, update: Update, context: ContextTypes.DEFAULT_TYPE, action_type: str):
-        """
-        Handles cancellation of mark and add_volunteer actions
-        
-        Args:
-            action_type: String indicating the type of action ('mark' or 'add_volunteer')
-        """
         query = update.callback_query
         user_id = query.from_user.id
         chat_id = query.message.chat.id
@@ -719,13 +689,11 @@ class Bot:
             return
 
         try:
-            # Проверяем, содержит ли callback_data дополнительную информацию
             callback_data = query.data
             if '_' in callback_data and 'condition' in callback_data:
-                # Формат: cancel_mark_condition_condition1_unique_code_telegram_tag
                 parts = callback_data.split('_')
                 if len(parts) >= 5:
-                    condition = parts[3]  # condition1, condition2, etc.
+                    condition = parts[3]
                     unique_code = parts[4]
                     telegram_tag = '_'.join(parts[5:])
                     
@@ -742,7 +710,6 @@ class Bot:
                         
                     self.log_action(user_id, f"Отменена отметка активности «{activity_name}» для пользователя {unique_code}")
             else:
-                # Старая логика для обработки отмены через команду mark
                 message_text = query.message.text
                 if action_type == 'mark':
                     if "условие" in message_text:
@@ -767,7 +734,6 @@ class Bot:
                             self.log_action(user_id, f"Отменена отметка {condition} для пользователя {user_info}")
                 
                 elif action_type == 'add_volunteer':
-                    # Существующая логика для отмены добавления волонтера
                     if "Код или позывной:" in message_text:
                         code_line = [line for line in message_text.split('\n') if "Код или позывной:" in line][0]
                         group_line = [line for line in message_text.split('\n') if "Группа:" in line][0]
@@ -795,7 +761,6 @@ class Bot:
                                 
                             self.log_action(user_id, f"Отменено добавление волонтера {volunteer_code} в группу {volunteer_group}")
 
-            # Update the message to show the cancellation
             buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
             reply_markup = InlineKeyboardMarkup(buttons)
             await query.edit_message_text(
@@ -812,7 +777,6 @@ class Bot:
             )
 
     async def show_user_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает статус прохождения пользователя с детальной информацией об активностях"""
         query = update.callback_query
         user_id = query.from_user.id
         chat_id = query.message.chat.id
@@ -828,7 +792,7 @@ class Bot:
             with sqlite3.connect('bot_database.db') as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    SELECT cl.condition1, cl.condition2, cl.condition3, cl.condition4, cl.condition5,
+                    SELECT cl.condition1, cl.condition2, cl.condition3,
                            u.animal_code, u.unique_code
                     FROM ContestLogs cl
                     JOIN Users u ON u.telegram_tag = cl.telegram_tag
@@ -846,31 +810,27 @@ class Bot:
                     )
                     return
 
-                conditions = result[:5]
-                animal_code = result[5]
-                unique_code = result[6]
+                conditions = result[:3]
+                animal_code = result[3]
+                unique_code = result[4]
 
                 completed = sum(conditions)
                 
-                # Формируем детальное сообщение о статусе
                 status_message = "✨ <b>Ваш текущий статус:</b>\n\n"
                 status_message += f"🏷 Позывной: <code>{animal_code}</code>\n"
                 status_message += f"🔢 Код: <code>{unique_code}</code>\n\n"
-                status_message += f"📊 Прогресс: {completed}/5 активностей\n"
+                status_message += f"📊 Прогресс: {completed}/3 активностей\n"
                 
-                # Добавляем прогресс-бар
                 progress_bar = "".join(['🟢' if c else '⚪' for c in conditions])
                 status_message += f"{progress_bar}\n\n"
                 
-                # Добавляем статус каждой активности с названием
                 status_message += "<b>Статус активностей:</b>\n"
                 for i, condition in enumerate(conditions, 1):
                     status = "✅" if condition else "❌"
                     activity_name = self.MAP_DOT_NAME[f'Акт{i}']
                     status_message += f"{status} {activity_name}\n"
 
-                # Добавляем подсказку
-                if completed < 5:
+                if completed < 3:
                     status_message += "\n💡 <i>Подсказка: Нажмите кнопку «Карта активностей» "
                     status_message += "чтобы увидеть расположение непройденных точек.</i>"
                 else:
@@ -897,7 +857,6 @@ class Bot:
             )
 
     async def show_volunteers_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает список волонтёров с их статистикой"""
         query = update.callback_query
         user_id = query.from_user.id
         chat_id = query.message.chat.id
@@ -918,13 +877,13 @@ class Bot:
         try:
             with sqlite3.connect('bot_database.db') as conn:
                 cursor = conn.cursor()
-                # Получаем основную информацию о волонтёрах
                 cursor.execute('''
                     SELECT 
                         u.telegram_tag,
                         u.unique_code,
                         u.animal_code,
-                        vg.volunteer_group
+                        vg.volunteer_group,
+                        u.full_name
                     FROM Users u
                     JOIN VolunteerGroups vg ON vg.user_id = u.id
                     WHERE u.role = ?
@@ -948,12 +907,11 @@ class Bot:
                 buttons = []
                 
                 current_group = None
-                for tag, code, animal, group in volunteers:
+                for tag, code, animal, group, full_name in volunteers:
                     if current_group != group:
                         current_group = group
                         message += f"\n<b>Группа {group}:</b>\n"
                     
-                    # Получаем количество отметок для конкретного условия
                     condition_field = self.GROUP_TO_CONDITION[group]
                     cursor.execute(f'''
                         SELECT COUNT(*) 
@@ -964,9 +922,8 @@ class Bot:
                     marks_count = cursor.fetchone()[0]
                     
                     activity_name = self.get_activity_name(condition_field)
-                    message += f"👤 {animal} ({code}) - {marks_count} отметок\n"
+                    message += f"👤 {animal} ({code}) - {full_name} - {marks_count} отметок\n"
                     
-                    # Создаем кнопку для каждого волонтёра
                     buttons.append([
                         InlineKeyboardButton(
                             f"{group} | {animal}",
@@ -990,7 +947,7 @@ class Bot:
             buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
             reply_markup = InlineKeyboardMarkup(buttons)
             error_message = f"❌ Ошибка при получении списка волонтёров: {str(e)}"
-            print(f"Error in show_volunteers_list: {str(e)}")  # Для отладки
+            print(f"Error in show_volunteers_list: {str(e)}")
             await self.safe_edit_message(
                 context,
                 chat_id,
@@ -1000,7 +957,6 @@ class Bot:
             )
 
     async def show_volunteer_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE, volunteer_code: str):
-        """Показывает детальную информацию о волонтёре"""
         query = update.callback_query
         user_id = query.from_user.id
         chat_id = query.message.chat.id
@@ -1015,7 +971,8 @@ class Bot:
                         u.unique_code,
                         u.animal_code,
                         vg.volunteer_group,
-                        u.id
+                        u.id,
+                        u.full_name
                     FROM Users u
                     JOIN VolunteerGroups vg ON vg.user_id = u.id
                     WHERE u.unique_code = ?
@@ -1026,11 +983,10 @@ class Bot:
                     await query.answer("❌ Волонтёр не найден", show_alert=True)
                     return
 
-                tag, code, animal, group, user_id_db = volunteer
+                tag, code, animal, group, user_id_db, full_name = volunteer
                 condition_field = self.GROUP_TO_CONDITION[group]
                 activity_name = self.get_activity_name(condition_field)
 
-                # Получаем статистику отметок
                 cursor.execute(f'''
                     SELECT COUNT(*) 
                     FROM ContestLogs 
@@ -1044,16 +1000,14 @@ class Bot:
                 message += f"🔢 Код: <code>{code}</code>\n"
                 message += f"👤 Тег: {tag}\n"
                 message += f"📍 Группа: {group}\n"
+                message += f"📛 ФИО: {full_name}\n"
                 message += f"🎯 Активность: {activity_name}\n"
                 message += f"📊 Количество отметок: {marks_count}\n"
 
                 buttons = [
-                    [InlineKeyboardButton("❌ Снять с роли волонтёра", 
-                                        callback_data=f"remove_volunteer_{code}")],
-                    [InlineKeyboardButton("↩️ К списку волонтёров", 
-                                        callback_data="show_volunteers")],
-                    [InlineKeyboardButton("🔙 Вернуться в главное меню", 
-                                        callback_data="return_to_main")]
+                    [InlineKeyboardButton("❌ Снять с роли волонтёра", callback_data=f"remove_volunteer_{code}")],
+                    [InlineKeyboardButton("↩️ К списку волонтёров", callback_data="show_volunteers")],
+                    [InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data="return_to_main")]
                 ]
                 reply_markup = InlineKeyboardMarkup(buttons)
 
@@ -1078,7 +1032,6 @@ class Bot:
             )
 
     async def remove_volunteer_role(self, update: Update, context: ContextTypes.DEFAULT_TYPE, volunteer_code: str):
-        """Удаляет роль волонтёра у пользователя"""
         query = update.callback_query
         user_id = query.from_user.id
         chat_id = query.message.chat.id
@@ -1092,7 +1045,6 @@ class Bot:
             with sqlite3.connect('bot_database.db') as conn:
                 cursor = conn.cursor()
                 
-                # Получаем информацию о волонтёре перед удалением
                 cursor.execute('''
                     SELECT u.animal_code, u.id, vg.volunteer_group
                     FROM Users u
@@ -1107,10 +1059,8 @@ class Bot:
 
                 animal_code, vol_user_id, volunteer_group = result
 
-                # Удаляем из группы волонтёров
                 cursor.execute('DELETE FROM VolunteerGroups WHERE user_id = ?', (vol_user_id,))
                 
-                # Меняем роль на обычного пользователя
                 cursor.execute('''
                     UPDATE Users 
                     SET role = 'Пользователь'
@@ -1154,7 +1104,6 @@ class Bot:
         user_id = query.from_user.id
         chat_id = query.message.chat.id
 
-        # Получаем main_message_id и map_message_id из БД
         with sqlite3.connect('bot_database.db') as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT main_message_id, map_message_id, event_message_id FROM UserMainMessages WHERE telegram_id = ?', (user_id,))
@@ -1165,12 +1114,10 @@ class Bot:
                 await query.answer("Ошибка: не найдено главное сообщение", show_alert=True)
                 return
 
-        # Возврат в главное меню (удаление карты и события)
         if query.data == 'return_to_main':
             if map_message_id:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=map_message_id)
-                    # Очищаем ID карты в БД
                     cursor.execute('UPDATE UserMainMessages SET map_message_id = NULL WHERE telegram_id = ?', (user_id,))
                     conn.commit()
                 except Exception as e:
@@ -1179,23 +1126,19 @@ class Bot:
             if event_message_id:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=event_message_id)
-                    # Очищаем ID события в БД
                     cursor.execute('UPDATE UserMainMessages SET event_message_id = NULL WHERE telegram_id = ?', (user_id,))
                     conn.commit()
                 except Exception as e:
                     print(f"Ошибка при удалении сообщения о мероприятии: {e}")
 
-            # Восстанавливаем главное сообщение
             role = self.get_user_role(user_id)
-            with sqlite3.connect('bot_database.db') as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT cl.animal_code, u.unique_code, cl.condition1, cl.condition2, cl.condition3, cl.condition4, cl.condition5 
-                    FROM ContestLogs cl
-                    JOIN Users u ON u.telegram_tag = cl.telegram_tag
-                    WHERE u.telegram_id = ?
-                ''', (user_id,))
-                animal_code, unique_code, *conditions = cursor.fetchone()
+            cursor.execute('''
+                SELECT cl.animal_code, u.unique_code, cl.condition1, cl.condition2, cl.condition3 
+                FROM ContestLogs cl
+                JOIN Users u ON u.telegram_tag = cl.telegram_tag
+                WHERE u.telegram_id = ?
+            ''', (user_id,))
+            animal_code, unique_code, *conditions = cursor.fetchone()
 
             welcome_message = self.welc_msg(animal_code, unique_code)
 
@@ -1203,17 +1146,16 @@ class Bot:
                 [InlineKeyboardButton("О мероприятии", callback_data='get_event1')],
             ]
             
-            if sum(conditions) < 5 and role != 'Организатор' and role != 'Волонтёр':
+            if sum(conditions) < 3 and role != 'Организатор' and role != 'Волонтёр':
                 buttons.append([InlineKeyboardButton("Получить карту", callback_data='get_map')])
                 completed_conditions = sum(conditions)
-                if completed_conditions == 5:
-                    progress_msg = "\nВы прошли все активности 🎉"
+                if completed_conditions == 3:
+                    progress_msg = "\n🎉 Вы прошли все активности"
                 else:
-                    progress_msg = f"\nВы прошли {completed_conditions} из 5 активностей."
+                    progress_msg = f"\n🎈 Вы прошли {completed_conditions} из 3 активностей."
                 welcome_message += progress_msg
         
             
-            # В методе start_command в блоке формирования кнопок для организаторов и волонтёров:
             if role == 'Организатор':
                 buttons.append([InlineKeyboardButton("Получить статистику", callback_data='get_stat')])
                 buttons.append([InlineKeyboardButton("👥 Список волонтёров", callback_data='show_volunteers')])
@@ -1235,26 +1177,21 @@ class Bot:
                 text=welcome_message,
                 reply_markup=reply_markup
             )
-                # Add these cases to button_callback method
+
         elif query.data == 'cancel_mark_condition':
             await self.cancel_action(update, context, 'mark')
-        # В методе button_callback добавим новое условие:
         elif query.data.startswith('cancel_mark_condition_'):
             await self.cancel_action(update, context, 'mark')
         elif query.data == 'cancel_add_volunteer':
             await self.cancel_action(update, context, 'add_volunteer')
-        # Добавить в метод button_callback новый случай для обработки кнопки статуса
         elif query.data == 'show_status':
             await self.show_user_status(update, context)
-        # Добавить в существующий метод button_callback новое условие
         elif query.data.startswith('mark_user_'):
             unique_code = query.data.replace('mark_user_', '')
             await self.handle_mark_user_callback(update, context, unique_code)
         elif query.data.startswith('unmark_user_'):
             data = query.data.replace('unmark_user_', '')
             await self.handle_unmark_user_callback(update, context, data)
-
-        # Add to button_callback method
         elif query.data == 'show_volunteers':
             await self.show_volunteers_list(update, context)
         elif query.data.startswith('volunteer_info_'):
@@ -1263,16 +1200,14 @@ class Bot:
         elif query.data.startswith('remove_volunteer_'):
             volunteer_code = query.data.replace('remove_volunteer_', '')
             await self.remove_volunteer_role(update, context, volunteer_code)
-
         elif query.data == 'get_map':
-
             buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
             reply_markup = InlineKeyboardMarkup(buttons)
 
             with sqlite3.connect('bot_database.db') as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    SELECT condition1, condition2, condition3, condition4, condition5 FROM ContestLogs cl
+                    SELECT condition1, condition2, condition3 FROM ContestLogs cl
                     JOIN Users u ON u.telegram_tag = cl.telegram_tag
                     WHERE u.telegram_id = ?
                 ''', (user_id,))
@@ -1300,7 +1235,6 @@ class Bot:
                 reply_markup=None
             )
         elif query.data == 'get_event1':
-
             buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
             reply_markup = InlineKeyboardMarkup(buttons)
 
@@ -1336,7 +1270,6 @@ class Bot:
                 reply_markup=reply_markup,
                 text="Введите команду /add_volunteer <код или позывной> <группа>"
             )
-
         elif query.data == 'mark_condition':
             buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
             reply_markup = InlineKeyboardMarkup(buttons)
@@ -1346,7 +1279,6 @@ class Bot:
                 reply_markup=reply_markup,
                 text="Введите команду /mark <код или позывной> <условие>"
             )
-        # В методе button_callback добавим:
         elif query.data == 'unmark_condition':
             buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
             reply_markup = InlineKeyboardMarkup(buttons)
@@ -1354,7 +1286,7 @@ class Bot:
             
             if role == 'Организатор':
                 message = (
-                    f"Введите команду /unmark <код или позывной> <группа>\nДоступные группы: {', '.join(sorted(self.VOLUNTEER_GROUPS))}\nПример: /unmark Лиса#123 А"
+                    f"Введите команду /unmark <код или позывной> <группа>\nДоступные группы: {', '.join(sorted(self.VOLUNTEER_GROUPS))}\nПример: /unmark Лиса#1 А"
                 )
             else:
                 message = (
@@ -1380,7 +1312,7 @@ class Bot:
         with sqlite3.connect('bot_database.db') as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT cl.animal_code, u.unique_code, cl.condition1, cl.condition2, cl.condition3, cl.condition4, cl.condition5 
+                SELECT cl.animal_code, u.unique_code, cl.condition1, cl.condition2, cl.condition3 
                 FROM ContestLogs cl
                 JOIN Users u ON u.telegram_tag = cl.telegram_tag
                 WHERE u.telegram_id = ?
@@ -1394,22 +1326,19 @@ class Bot:
             [InlineKeyboardButton("О мероприятии", callback_data='get_event1')],
         ]
 
-        # Добавляем кнопку "Мой статус" для пользователей
         if role == 'Пользователь':
             buttons.append([InlineKeyboardButton("📊 Мой статус", callback_data='show_status')])
 
-
-        if sum(conditions) < 5 and role != 'Организатор' and role != 'Волонтёр':
+        if sum(conditions) < 3 and role != 'Организатор' and role != 'Волонтёр':
             buttons.append([InlineKeyboardButton("Получить карту", callback_data='get_map')])
             completed_conditions = sum(conditions)
-            if completed_conditions == 5:
-                progress_msg = "Вы прошли все активности 🎉"
+            if completed_conditions == 3:
+                progress_msg = "\n🎉 Вы прошли все активности"
             else:
-                progress_msg = f"Вы прошли {completed_conditions} из 5 активностей."
+                progress_msg = f"\n🎈 Вы прошли {completed_conditions} из 3 активностей."
             welcome_message += progress_msg
         
         
-        # В методе start_command в блоке формирования кнопок для организаторов и волонтёров:
         if role == 'Организатор':
             buttons.append([InlineKeyboardButton("Получить статистику", callback_data='get_stat')])
             buttons.append([InlineKeyboardButton("👥 Список волонтёров", callback_data='show_volunteers')])
@@ -1423,7 +1352,6 @@ class Bot:
         reply_markup = InlineKeyboardMarkup(buttons)
         message = await update.message.reply_text(welcome_message, reply_markup=reply_markup)
         
-        # Store the main message ID for this user
         with sqlite3.connect('bot_database.db') as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -1432,7 +1360,6 @@ class Bot:
             ''', (user_id, message.message_id))
             conn.commit()
 
-        # Удаление исходного сообщения с командой
         try:
             await update.message.delete()
         except Exception as e:
@@ -1598,7 +1525,6 @@ class Bot:
                 print(f"Ошибка при удалении сообщения с командой: {e}")
             return
 
-        # Проверка аргументов команды
         if role == 'Организатор' and len(context.args) != 2:
             await self.safe_edit_message(
                 context,
@@ -1663,7 +1589,6 @@ class Bot:
                 target_user_id, target_telegram_tag, contest_log_id = target_user
                 
                 if role == "Волонтёр":
-                    # Сначала получаем id пользователя из таблицы Users
                     cursor.execute('SELECT id FROM Users WHERE telegram_id = ?', (user_id,))
                     user_db_id = cursor.fetchone()
                     
@@ -1678,7 +1603,6 @@ class Bot:
                         )
                         return
                         
-                    # Теперь получаем группу волонтёра используя правильный id
                     cursor.execute('''
                         SELECT volunteer_group 
                         FROM VolunteerGroups 
@@ -1699,7 +1623,7 @@ class Bot:
                     
                     volunteer_group = volunteer_group_data[0]
                     condition_field = self.GROUP_TO_CONDITION[volunteer_group]
-                else:  # Организатор
+                else:
                     volunteer_group = context.args[1].upper()
                     if volunteer_group not in self.VOLUNTEER_GROUPS:
                         await self.safe_edit_message(
@@ -1733,7 +1657,6 @@ class Bot:
                 ]
                 reply_markup = InlineKeyboardMarkup(buttons)
                 
-                # Заменим вывод сообщения об успешной отметке
                 activity_name = self.get_activity_name(condition_field)
                 await self.safe_edit_message(
                     context,
@@ -1764,7 +1687,7 @@ class Bot:
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("add_volunteer", self.add_volunteer_command))
         application.add_handler(CommandHandler("mark", self.mark_condition_command))
-        application.add_handler(CommandHandler("unmark", self.unmark_condition_command))  # Новая команда
+        application.add_handler(CommandHandler("unmark", self.unmark_condition_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_volunteer_search))
         application.add_handler(CallbackQueryHandler(self.button_callback))
         print("Бот запущен...")
@@ -1772,7 +1695,6 @@ class Bot:
 
 if __name__ == '__main__':
 
-    # Настройка логирования
     logging.basicConfig(
         level=logging.ERROR,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -1809,3 +1731,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print("\nБот остановлен вручную")
         sys.exit(0)
+                   
