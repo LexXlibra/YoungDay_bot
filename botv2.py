@@ -178,6 +178,7 @@ class Bot:
                 SELECT id, ? FROM Users WHERE telegram_id = ?
             ''', (action, telegram_id))
             conn.commit()
+    
 
     def get_contest_stats(self):
         with sqlite3.connect('bot_database.db') as conn:
@@ -1098,6 +1099,67 @@ class Bot:
                 f"❌ Ошибка при удалении роли волонтёра: {str(e)}",
                 reply_markup
             )
+
+    async def stat_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        main_message_id = self.get_main_message_id(user_id)
+        
+        if not main_message_id:
+            await update.message.reply_text("Ошибка: не найдено главное сообщение. Используйте /start для начала работы.")
+            return
+            
+        role = self.get_user_role(user_id)
+        
+        if role != 'Организатор':
+            buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
+            reply_markup = InlineKeyboardMarkup(buttons)
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=main_message_id,
+                text="⛔ У вас нет доступа к этой команде.",
+                reply_markup=reply_markup
+            )
+            return
+
+        self.log_action(user_id, "Использована команда /stat")
+        
+        with sqlite3.connect('bot_database.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    cl.animal_code,
+                    cl.telegram_tag,
+                    (cl.condition1 + cl.condition2 + cl.condition3 + cl.condition4 + cl.condition5) as completed_conditions
+                FROM ContestLogs cl
+                ORDER BY completed_conditions DESC
+                LIMIT 10
+            ''')
+            stats = cursor.fetchall()
+
+        if not stats:
+            buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
+            reply_markup = InlineKeyboardMarkup(buttons)
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=main_message_id,
+                text="Статистика пока отсутствует.",
+                reply_markup=reply_markup
+            )
+            return
+
+        response = "📊 Статистика конкурса:\n\n"
+        for animal_code, telegram_tag, completed in stats:
+            response += f"🏷 {animal_code} | {telegram_tag or 'Нет тега'} | {completed}/5 ✅ \n\n"
+        
+        buttons = [[InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data='return_to_main')]]
+        reply_markup = InlineKeyboardMarkup(buttons)
+        
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=main_message_id,
+            text=response,
+            reply_markup=reply_markup
+        )
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
