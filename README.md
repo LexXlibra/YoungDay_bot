@@ -1,1 +1,0 @@
-# YoungDay_bot
